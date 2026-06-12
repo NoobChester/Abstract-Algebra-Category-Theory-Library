@@ -1,3 +1,6 @@
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE FunctionalDependencies #-}
+
 module Algebra where
 
 import Prelude hiding (Monoid, Semigroup, (<>), (+), (*), id)
@@ -5,74 +8,56 @@ import Prelude hiding (Monoid, Semigroup, (<>), (+), (*), id)
 -- Objects
 -- Things that exist in our categoric universe
 class Obj o
+instance Obj (Morphism q)
+
 -- Arrows
 -- Represents the rawest form of connection between any two things.
 data Arrow q x y where
-    Arrow :: q Obj x Obj y -> Arrow q Obj x Obj y
+    SetArrow :: (Obj x, Obj y) => q x y -> Arrow q x y
+
 -- Morphisms
 -- Represents arrows with composition
 data Morphism q x y where
-    Morphism   :: q Obj x Obj y -> Morphism q Obj x Obj y
-    ComposeMorphism :: Morphism q Obj y Obj z -> Morphism q Obj x Obj y -> Morphism q Obj x Obj z
-data Endomorphism q x y where
-    Endomorphism   :: q Obj x Obj x -> Endomorphism q Obj x Obj x
-    ComposeEndomorphism :: Endomorphism q Obj x Obj x -> Endomorphism q Obj x Obj x -> Endomorphism q Obj x Obj x
+    Id :: Obj x => Morphism q x x
+    Morph :: Arrow q x y -> Morphism q x y
+    ComposeMorphism :: Morphism q y z -> Morphism q x y -> Morphism q x z
+    AssocChain  :: Obj x => [Morphism q x x] -> Morphism q x x
 
-data T v = T
+data Endomorphism q x where
+    Endo :: Morphism q x x -> Endomorphism q x
 
--- Quivers
--- The base structure defining the "shape" of the algebra.
--- 'q' is a type constructor representing the arrows between objects.
-class Quiver q where
-    -- This class provides the structure for arrows: edge start end
-    -- It ensures that every edge has a defined domain and codomain.
-    source :: (Obj x, Obj y) => Arrow q x y -> T x
-    source _ = T
-    target :: (Obj x, Obj y) => Arrow q x y -> T y
-    target _ = T
+data Isomorphism q x y where
+    -- if the inverse (Morphism q y x) is defined, there is proof that we have an isomophism
+    Iso :: Morphism q x y -> Morphism q y x -> Isomorphism q x y
 
--- Magmoids
--- A Quiver + a partial binary operation.
--- Inherits from Quiver but then equips with an operation.
-class Quiver q => Magmoid q where
-    composeMagmoid :: (Obj x, Obj y, Obj z) => Arrow q y z -> Arrow q x y -> Arrow q x z
+-- Objects endowed with a partial binary operation
+class Obj m => Magmoid m where
+    magmoidOp :: (Obj x, Obj y, Obj z) => m y z -> m x y -> m x z
+instance Magmoid (Morphism q) where
+    magmoidOp :: (Obj x, Obj y, Obj z) => Morphism q y z -> Morphism q x y -> Morphism q x z
+    magmoidOp f g = ComposeMorphism f g
 
+-- Objects endowed with a total binary operation
+class Magmoid m => Magma m where
+    magmaOp :: (Obj x) => m x x -> m x x -> m x x
+instance Magma (Morphism q) where
+    magmaOp :: Obj x => Morphism q x x -> Morphism q x x -> Morphism q x x
+    magmaOp f g = ComposeMorphism f g
 
-
--- Semigroupoids
--- A Magmoid with associativity
--- Inherits from Magmoid and gets endowed with associativity.
-class Magmoid q => Semigroupoid q where
-    composeSemigroupoid :: Arrow q y z -> Arrow q x y -> Arrow q x z
-    composeSemigroupoid (Arrow f) (Arrow g) = Arrow (f . g)
-
--- | Endomorphism
--- Represents an element as an Endomorphism (o -> o).
-newtype Endo q o = Endo { getEndo :: Arrow q o o }
-
-newtype Id q x = Id { getId :: Arrow q x x }
--- Categories
--- A Semigroupoid with identity
--- Inherits from Semigroupoid and gets endowed with an identity morphism.
-class (Semigroupoid q) => Category q where
-    id :: (Obj o) => Endo q o
-
--- Magmas
--- A Quiver + a total binary operation.
--- Inherits from Magmoid but fixes the vertices to a single object 'o'.
-class (Magmoid q, Obj o) => Magma q o where
-    (⋆) :: Endo q o o -> Endo q o o -> Endo q o o
-    (Endo f) ⋆ (Endo g) = Endo { getEndo = f ∘ g }
-
--- Semigroups
--- A Magma with associativity
--- Inherits from Magma but endowed with associativity
-class Magma q o => Semigroup q o where
-    (Endo f) ⋆ (Endo g) = Endo { getEndo = f (getEndo g) }
+-- Objects endowed with a total binary operation and associative
+class Magma m => Semigroup m where
+    semigroupOp :: Obj x => m x x -> m x x -> m x x
+    semigroupOp = magmaOp
+instance Semigroup (Morphism q) where
+    semigroupOp f g = AssocChain (unwrap f ++ unwrap g)
+        where
+            unwrap (AssocChain xs) = xs
+            unwrap x = [x]
 
 
--- Monoids
--- A Category + a total binary operation.
--- Inherits from Category but fixes the vertices to a single object 'o'.
-class (Category q o) => Monoid q o where
-
+--class Semigroup g => Monoid g where
+--    mempty :: g
+--class Monoid g => Group g where
+--    groupOp :: g -> g -> g
+--    invert :: g -> g
+--    identity :: g
